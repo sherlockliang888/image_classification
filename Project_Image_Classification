@@ -1,0 +1,192 @@
+import numpy as np # Linear Algebra
+import pandas as pd # Data Processing
+
+# Input files are available in '''C:/Erdem PC External/GBC/13-DL-2/Project/Data''' directory.
+root = 'C:/Erdem PC External/GBC/13-DL-2/Project/Data'
+train_dir = f'{root}/training/training200/'
+test_dir = f'{root}/validation/validation/'
+
+import os
+print(os.listdir(root))
+
+#Data Exploration
+pd.read_csv(f"{root}/monkey_labels.txt",  skiprows=1)
+cols = ['Label', 'Latin Name', 'Common Name', 'Train Images', 'Validation Images']
+monkey_labels_df = pd.read_csv(f"{root}/monkey_labels.txt", names=cols, skiprows=1)
+# Importing Tensorflow.Keras Libraries and packages
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Convolution2D, MaxPooling2D, AveragePooling2D, Flatten, Dense
+from tensorflow.keras.layers import Activation, BatchNormalization, GlobalAveragePooling2D, Dropout
+
+#----------------------------------------------------------------------------
+# Look for some example images : 
+def image_show(num_image,label): # Function showing number ofrandom  images on specified class. 
+    from matplotlib import pyplot as plt
+    import random
+    import cv2
+    import os
+    for i in range(num_image):
+        imgdir = f'{train_dir}{label}'
+        imgfile = random.choice(os.listdir(imgdir))
+        img = cv2.imread(f'{train_dir}'+ label +'/'+ imgfile)
+        plt.figure(i)
+        plt.imshow(img)
+        plt.title(imgfile)
+    plt.show()
+
+# Show samples images
+class_no = 4
+number_image = 3
+print(monkey_labels_df['Common Name'][class_no])
+image_show(number_image, f'n{class_no}')
+
+#---------------------------------------------------------------------------
+# Creation of CNN Model
+
+def get_net(num_classes):
+    
+    model = Sequential()
+    model.add(Convolution2D(32, 3, 1, input_shape=(150, 150, 3), 
+                            activation = 'relu'))
+    model.add(MaxPooling2D(pool_size=(2,2)))
+    model.add(BatchNormalization())
+
+    model.add(Convolution2D(32, 3, 1,
+                            activation = 'relu'))
+    model.add(MaxPooling2D(pool_siz=(2,2)))
+    model.add(BatchNormalization())
+
+    model.add(Convolution2D(64, (3, 3), 
+                            activation = 'relu'))
+    model.add(MaxPooling2D(pool_size=(2,2)))
+    model.add(BatchNormalization())
+    
+    model.add(Convolution2D(64, 3,1, 
+                            activation = 'relu'))
+    model.add(AveragePooling2D(pool_size=(2,2)))
+    model.add(BatchNormalization())
+    
+    model.add(Convolution2D(512, 1,1, 
+                            activation = 'relu'))
+    model.add(AveragePooling2D(pool_size = (2,2)))
+    model.add(BatchNormalization())
+
+    model.add(Flatten())
+        
+    # Fully connected NN
+    N_neurons = 80
+    model.add(Dense(units = N_neurons, activation = 'relu'))
+    model.add(Dense(units = 50, activation = 'relu'))
+    model.add(Dense(units = num_classes, activation = 'softmax'))
+    
+    return model
+
+num_classes = 10
+net = get_net(num_classes)
+net.compile(optimizer='adam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+
+# Save the model-------------------------------------
+from keras.utils import plot_model
+plot_model(net, to_file='model_6L_3D.png', show_shapes=True)
+
+net.summary()
+
+#--------------------------------------------------------------------------
+# 
+from keras.preprocessing.image import ImageDataGenerator
+
+height = 150
+width = 150
+batch_size = 50 
+seed = 100
+
+# Training generator
+train_datagen = ImageDataGenerator(
+    rescale=1. / 255)
+
+train_generator = train_datagen.flow_from_directory(
+    train_dir,
+    target_size=(height, width),
+    batch_size=batch_size,
+    seed=seed,
+    shuffle=False,
+    class_mode='categorical')
+
+# Test generator
+test_datagen = ImageDataGenerator(
+    rescale=1. / 255)
+
+test_generator = test_datagen.flow_from_directory(
+    test_dir,
+    target_size=(height, width),
+    batch_size=batch_size,
+    seed=seed,
+    shuffle=False,
+    class_mode='categorical')
+
+train_num = train_generator.samples
+test_num = test_generator.samples 
+#------------------------------------
+#CheckPoints
+
+# creat checkpoints to save the best fit
+from keras.callbacks import ModelCheckpoint
+checkpointer = ModelCheckpoint(filepath="best_weights.hdf5", 
+                               monitor = 'val_accuracy',
+                               verbose=1, 
+                               save_best_only=True)
+# fit the model ------------
+history = net.fit_generator(train_generator,
+                         steps_per_epoch = None,
+                         callbacks=[checkpointer],
+                         epochs = 15,
+                         validation_data = train_generator,
+                         validation_steps = None)
+
+# Save the model ----------------------------------------
+net.save('project_run.h5')
+#net.save_weights('best_weights.hdf5')
+
+# load weights ------------------------------------------
+#net.load_weights('best_weights.hdf5')
+
+from tensorflow.keras.models import load_model
+model_name = "project_run.h5"
+
+net = load_model(model_name)
+
+
+ypred = net.predict_generator(test_generator, test_num // batch_size+1,
+                               workers=0)
+ypred = np.argmax(ypred, axis=1)
+
+
+from sklearn.metrics import classification_report, confusion_matrix
+cm = confusion_matrix(test_generator.classes, ypred)
+print(cm)
+
+print(classification_report(test_generator.classes, ypred, target_names=monkey_labels_df['Common Name']))
+
+
+
+import matplotlib.pyplot as plt
+plt.subplots() # open a new plot
+plt.plot(history.history['accuracy'])
+plt.plot(history.history['val_accuracy'])
+plt.title('model accuracy')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train', 'validation'])
+plt.show()
+
+# Plot the loss for both train and validation set
+plt.subplots() # open a new plot
+plt.plot(history.history['loss'])
+plt.plot(history.history['val_loss'])
+plt.title('model loss')
+plt.ylabel('loss')
+plt.xlabel('epoch')
+plt.legend(['train', 'validation'])
+plt.show()
